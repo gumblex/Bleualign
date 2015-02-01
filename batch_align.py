@@ -18,7 +18,8 @@ import os
 from align import Aligner
 
 if len(sys.argv) < 5:
-    sys.stderr.write('Usage: python batch_align directory source_suffix target_suffix translation_suffix')
+    sys.stderr.write(
+        'Usage: python batch_align directory source_suffix target_suffix translation_suffix')
     exit()
 
 directory = sys.argv[1]
@@ -44,17 +45,19 @@ for source_document in [d for d in os.listdir(directory) if d.endswith('.' + sou
 
     source_document = os.path.join(directory, source_document)
     target_document = source_document[:-len(source_suffix)] + target_suffix
-    translation_document = source_document[:-len(source_suffix)] + translation_suffix
+    translation_document = source_document[
+        :-len(source_suffix)] + translation_suffix
 
     # Sanity checks
     for f in source_document, target_document, translation_document:
         if not os.path.isfile(f):
-            sys.stderr.write('ERROR: File {0} expected, but not found\n'.format(f))
+            sys.stderr.write(
+                'ERROR: File {0} expected, but not found\n'.format(f))
             exit()
 
     jobs.append((source_document, target_document, translation_document))
 
-for (source_document,target_document,translation_document) in jobs:
+for (source_document, target_document, translation_document) in jobs:
 
     options['srcfile'] = source_document
     options['targetfile'] = target_document
