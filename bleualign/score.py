@@ -23,7 +23,8 @@ import re
 import xml.sax.saxutils
 
 # Added to bypass NIST-style pre-processing of hyp and ref files -- wade
-nonorm = 0
+#nonorm = 0
+nonorm = 1
 
 preserve_case = False
 eff_ref_len = "shortest"

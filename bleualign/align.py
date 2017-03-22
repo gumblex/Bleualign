@@ -20,10 +20,13 @@ from bleualign.nltkbleu import doublebleu
 if sys.version_info >= (2, 6):
     import multiprocessing
     multiprocessing_enabled = 1
-    number_of_threads = 2
+    number_of_threads = multiprocessing.cpu_count() #3 #2
 else:
     multiprocessing_enabled = 0
 
+#multiprocessing_enabled = 0
+
+#.EOA
 
 def collect_article(src, srctotarget, target, targettosrc, options):
 
@@ -33,7 +36,7 @@ def collect_article(src, srctotarget, target, targettosrc, options):
         all_texts = []
         all_translations = []
 
-        for text, translations in [(src, srctotarget), (target, targettosrc)]:
+        for text, translations in ((src, srctotarget), (target, targettosrc)):
             textlist = []
             translist = [[] for i in translations]
 
@@ -107,8 +110,8 @@ class Aligner:
         # consider N to 1 (and 1 to N) alignment in gapfilling (complexity is size_of_gap*value^2, so don't turn this unnecessarily high)
         # also, there are potential precision issues.
         # set to 1 to disable bleu-based 1 to N alignments and let gale & church fill the gaps
-        #'Nto1' : 2,
-        'Nto1': 3,
+        'Nto1' : 2,
+        #'Nto1': 3,
 
         # do only gale-church, no bleualign
         'galechurch': None,
@@ -199,7 +202,7 @@ class Aligner:
 
     # for passing by string array
     def _stringArray2stringIo(self, stringArray):
-        return io.StringIO('\n'.join(line.rstrip() for line in stringArray))
+        return io.StringIO('\n'.join(line.rstrip() for line in stringArray).decode('utf-8'))
 
     # parameter may be filename, IO object or string array
     def _inputObjectFromParameter(self, parameter):
@@ -430,8 +433,8 @@ class Aligner:
         else:
             self.log('Evaluating sentences with bleu', 1)
             #self.scoredict = self.eval_sents(translist,targetlist)
-            #self.scoredict = self.eval_sents_double(translist,targetlist)
-            self.scoredict = self.eval_sents_nltkbleu(translist, targetlist)
+            self.scoredict = self.eval_sents_double(translist,targetlist)
+            #self.scoredict = self.eval_sents_nltkbleu(translist, targetlist)
             self.log('finished', 1)
             self.log('searching for longest path of good alignments', 1)
             self.pathfinder(translist, targetlist)
@@ -544,19 +547,20 @@ class Aligner:
     # if you want to replace bleu with your own similarity measure, use
     # eval_sents_dummy
     def eval_sents_double(self, translist, targetlist):
+        sbng = self.options['bleu_ngrams']
 
         scoredict = {}
         cooked_test = {}
         cooked_test2 = {}
         cooktarget = [(items[0], bleu.cook_refs(
-            [items[1]], self.options['bleu_ngrams'])) for items in enumerate(targetlist)]
+            [items[1]], sbng)) for items in enumerate(targetlist)]
         cooktarget = [(refID, (reflens, refmaxcounts, set(refmaxcounts)))
                       for (refID, (reflens, refmaxcounts)) in cooktarget]
         ################
         sccooked_test = {}
         sccooked_test2 = {}
-        sccooktarget = [(items[0], bleu.cook_refs([' '.join(ch for ch in items[1].replace(
-            ' ', ''))], self.options['bleu_ngrams'])) for items in enumerate(targetlist)]
+        sccooktarget = [(items[0], bleu.cook_refs([' '.join(items[1].replace(
+            ' ', ''))], sbng)) for items in enumerate(targetlist)]
         sccooktarget = [(refID, (reflens, refmaxcounts, set(refmaxcounts))) for (
             refID, (reflens, refmaxcounts)) in sccooktarget]
 
@@ -567,108 +571,102 @@ class Aligner:
             test_normalized = testSent.split()
             cooked_test["testlen"] = len(test_normalized)
             cooked_test["guess"] = [max(
-                len(test_normalized) - k + 1, 0) for k in xrange(1, self.options['bleu_ngrams'] + 1)]
+                len(test_normalized) - k + 1, 0) for k in xrange(1, sbng + 1)]
             counts = bleu.count_ngrams(
-                test_normalized, self.options['bleu_ngrams'])
+                test_normalized, sbng)
 
             # separate by n-gram length. if we have no matching bigrams, we
             # don't have to compare unigrams
-            ngrams_sorted = dict((x, set())
-                                 for x in xrange(self.options['bleu_ngrams']))
+            ngrams_sorted = dict((x, set()) for x in xrange(sbng))
             for ngram in counts:
                 ngrams_sorted[len(ngram) - 1].add(ngram)
 
             ####################
 
             # copied over from bleu.py to minimize redundancy
-            sctest_normalized = [ch for ch in testSent.replace(' ', '')]
+            sctest_normalized = list(testSent.replace(' ', ''))
             sccooked_test["testlen"] = len(sctest_normalized)
             sccooked_test["guess"] = [max(
-                len(sctest_normalized) - k + 1, 0) for k in xrange(1, self.options['bleu_ngrams'] + 1)]
+                len(sctest_normalized) - k + 1, 0) for k in xrange(1, sbng + 1)]
             sccounts = bleu.count_ngrams(
-                sctest_normalized, self.options['bleu_ngrams'])
+                sctest_normalized, sbng)
 
             # separate by n-gram length. if we have no matching bigrams, we
             # don't have to compare unigrams
-            scngrams_sorted = dict((x, set())
-                                   for x in xrange(self.options['bleu_ngrams']))
+            scngrams_sorted = dict((x, set()) for x in xrange(sbng))
             for ngram in sccounts:
                 scngrams_sorted[len(ngram) - 1].add(ngram)
 
             for (refID, (reflens, refmaxcounts, refset)) in cooktarget:
 
-                ngrams_filtered = ngrams_sorted[
-                    self.options['bleu_ngrams'] - 1].intersection(refset)
+                ngrams_filtered = ngrams_sorted[sbng - 1].intersection(refset)
 
                 screfID, (screflens, screfmaxcounts, screfset) = sccooktarget[
                     refID]
 
-                scngrams_filtered = scngrams_sorted[
-                    self.options['bleu_ngrams'] - 1].intersection(screfset)
+                scngrams_filtered = scngrams_sorted[sbng - 1].intersection(screfset)
 
                 if ngrams_filtered:
                     cooked_test["reflen"] = reflens[0]
-                    cooked_test['correct'] = [0] * self.options['bleu_ngrams']
+                    cooked_test['correct'] = [0] * sbng
                     for ngram in ngrams_filtered:
                         cooked_test["correct"][
-                            self.options['bleu_ngrams'] - 1] += min(refmaxcounts[ngram], counts[ngram])
+                            sbng - 1] += min(refmaxcounts[ngram], counts[ngram])
 
-                    for order in xrange(self.options['bleu_ngrams'] - 1):
+                    for order in xrange(sbng - 1):
                         for ngram in ngrams_sorted[order].intersection(refset):
                             cooked_test["correct"][
                                 order] += min(refmaxcounts[ngram], counts[ngram])
 
                     # copied over from bleu.py to minimize redundancy
                     logbleu = 0.0
-                    for k in xrange(self.options['bleu_ngrams']):
+                    for k in xrange(sbng):
                         logbleu += math.log(cooked_test['correct'][k]) - math.log(
                             cooked_test['guess'][k])
-                    logbleu /= self.options['bleu_ngrams']
+                    logbleu /= sbng
                     logbleu += min(0, 1 -
                                    float(cooked_test['reflen']) / cooked_test['testlen'])
 
                     ################
                     sccooked_test["reflen"] = screflens[0]
-                    sccooked_test['correct'] = [
-                        0] * self.options['bleu_ngrams']
+                    sccooked_test['correct'] = [0] * sbng
                     for ngram in scngrams_filtered:
                         sccooked_test["correct"][
-                            self.options['bleu_ngrams'] - 1] += min(screfmaxcounts[ngram], sccounts[ngram])
+                            sbng - 1] += min(screfmaxcounts[ngram], sccounts[ngram])
 
-                    for order in xrange(self.options['bleu_ngrams'] - 1):
+                    for order in xrange(sbng - 1):
                         for ngram in scngrams_sorted[order].intersection(screfset):
                             sccooked_test["correct"][
                                 order] += min(screfmaxcounts[ngram], sccounts[ngram])
 
                     # copied over from bleu.py to minimize redundancy
                     sclogbleu = 0.0
-                    for k in xrange(self.options['bleu_ngrams']):
-                        sclogbleu += math.log(sccooked_test['correct'][k]) - math.log(
-                            sccooked_test['guess'][k])
-                    sclogbleu /= self.options['bleu_ngrams']
+                    for k in xrange(sbng):
+                        sclogbleu += math.log(sccooked_test['correct'][k]) - math.log(sccooked_test['guess'][k])
+                    sclogbleu /= sbng
                     sclogbleu += min(0, 1 -
                                      float(sccooked_test['reflen']) / sccooked_test['testlen'])
-                    score = (math.exp(logbleu) + math.exp(sclogbleu)) / 2
+                    score = math.exp(logbleu) * .8 + math.exp(sclogbleu) * .2
 
                     if score > 0:
                         # calculate bleu score in reverse direction
                         cooked_test2["guess"] = [
-                            max(cooked_test['reflen'] - k + 1, 0) for k in xrange(1, self.options['bleu_ngrams'] + 1)]
+                            max(cooked_test['reflen'] - k + 1, 0) for k in xrange(1, sbng + 1)]
                         logbleu = 0.0
-                        for k in xrange(self.options['bleu_ngrams']):
+                        for k in xrange(sbng):
                             logbleu += math.log(cooked_test['correct'][k]) - math.log(
                                 cooked_test2['guess'][k])
-                        logbleu /= self.options['bleu_ngrams']
+                        logbleu /= sbng
                         logbleu += min(0, 1 -
                                        float(cooked_test['testlen']) / cooked_test['reflen'])
                         ##############
                         sccooked_test2["guess"] = [max(sccooked_test[
-                                                       'reflen'] - k + 1, 0) for k in xrange(1, self.options['bleu_ngrams'] + 1)]
+                                                       'reflen'] - k + 1, 0) for k in xrange(1, sbng + 1)]
                         sclogbleu = 0.0
-                        for k in xrange(self.options['bleu_ngrams']):
+                        for k in xrange(sbng):
                             sclogbleu += math.log(sccooked_test['correct'][k]) - math.log(
                                 sccooked_test2['guess'][k])
-                        sclogbleu /= self.options['bleu_ngrams']
+                        sclogbleu /= sbng
                         sclogbleu += min(
                             0, 1 - float(sccooked_test['testlen']) / sccooked_test['reflen'])
                         score2 = (math.exp(logbleu) + math.exp(sclogbleu)) / 2
@@ -677,8 +675,7 @@ class Aligner:
                         scorelist.append(
                             (meanscore, refID, cooked_test['correct']))
 
-            scoredict[testID] = sorted(scorelist, key=itemgetter(0), reverse=True)[
-                :self.options['maxalternatives']]
+            scoredict[testID] = sorted(scorelist, key=itemgetter(0), reverse=True)[:self.options['maxalternatives']]
 
         return scoredict
 
@@ -886,7 +883,7 @@ class Aligner:
                 # score (beginning of gap)
                 if pregapsrc:
                     oldscore, oldtarget, oldcorrect = scoredict[pregapsrc][0]
-                    combinedID = tuple(list(pregapsrc) + [sourcegap[0]])
+                    combinedID = tuple(tuple(pregapsrc) + (sourcegap[0],))
                     if combinedID in scoredict:
                         newscore, newtarget, newcorrect = scoredict[
                             combinedID][0]
@@ -901,7 +898,7 @@ class Aligner:
                 # score (end of gap)
                 if postgapsrc:
                     oldscore, oldtarget, oldcorrect = scoredict[postgapsrc][0]
-                    combinedID = tuple([sourcegap[-1]] + list(postgapsrc))
+                    combinedID = tuple((sourcegap[-1],) + tuple(postgapsrc))
                     if combinedID in scoredict:
                         newscore, newtarget, newcorrect = scoredict[
                             combinedID][0]
@@ -1175,7 +1172,7 @@ class Aligner:
                 sources, translations, targets, sources_output, targets_output)
 
         self.log("\nfinished with article", 1)
-        self.log("\n====================\n", 1)
+        self.log("====================", 1)
 
         if self.out1 and self.out2 and not self.options['filter']:
             if self.options['factored']:
@@ -1261,8 +1258,7 @@ class Aligner:
     # filter bad sentence pairs / article pairs
     def write_filtered(self):
 
-        self.finalbleu = sorted(
-            self.finalbleu, key=itemgetter(0), reverse=True)
+        self.finalbleu = sorted(self.finalbleu, key=itemgetter(0), reverse=True)
         self.log(self.finalbleu, 2)
 
         totallength = 0
@@ -1276,7 +1272,7 @@ class Aligner:
         averagescore = totalscore / totallength
         self.log("The average BLEU score is: " + str(averagescore), 1)
 
-        goodlength = totallength * self.options['filterthreshold'] / float(100)
+        goodlength = totallength * self.options['filterthreshold'] / 100.0
         totallength = 0
 
         bad_percentiles = []
@@ -1340,6 +1336,7 @@ class Aligner:
     def log(self, msg, level=1, end='\n'):
         if level <= self.options['verbosity']:
             print(msg, end=end, file=self.options['log_to'])
+        self.options['log_to'].flush()
 
 # Allows parallelizing of alignment
 if multiprocessing_enabled:
@@ -1365,5 +1362,6 @@ if multiprocessing_enabled:
                     sourcelist, targetlist, translist1, translist2)
                 self.scores[i] = (
                     data, self.multialign, self.bleualign, self.scoredict)
+                self.log('finished article ' + str(i), 1)
 
                 i, data = self.tasks.get()
